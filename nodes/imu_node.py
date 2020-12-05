@@ -136,9 +136,10 @@ gyro_average_offset_z = rospy.get_param('~gyro_average_offset_z', 0.0)
 # Check your COM port and baud rate
 rospy.loginfo("Opening %s...", port)
 try:
-    ser = serial.Serial(port=port, baudrate=57600, timeout=1)
+    ser = serial.Serial(port=port, baudrate=115200, timeout=1)
 except serial.serialutil.SerialException:
-    rospy.logerr("IMU not found at port "+port + ". Did you specify the correct port in the launch file?")
+    rospy.logerr("IMU not found at port "+port + ". Did you specify the correct port in the launch file?\n"
+        "Go to /dev/ttyUSB* to check the USB port number. If need be, 'sudo chmod 777 /dev/ttyUSB0'")
     #exit
     sys.exit(0)
 
@@ -146,7 +147,9 @@ roll=0
 pitch=0
 yaw=0
 seq=0
-accel_factor = 9.806 / 256.0    # sensor reports accel as 256.0 = 1G (9.8m/s^2). Convert to m/s^2.
+# see https://github.com/sparkfun/OpenLog_Artemis/blob/master/SENSOR_UNITS.md
+accel_factor = 9.806 / 1000.0    # sensor reports accel in units of 1 milli G (9.8m/s^2). Convert to m/s^2.
+gyro_factor = math.pi / 180
 rospy.loginfo("Giving the razor IMU board 5 seconds to boot...")
 rospy.sleep(5) # Sleep for 5 seconds to wait for the board to boot
 
@@ -223,61 +226,67 @@ while not rospy.is_shutdown():
     line = line.replace("#YPRAG=","")   # Delete "#YPRAG="
     #f.write(line)                     # Write to the output log file
     words = string.split(line,",")    # Fields split
+    # date, time, accel, gyro, magnetometer, temperature, rate
+    # example words: ['01/01/2000', '00:04:04.34', '-1.95', '491.70', '-854.98',
+    # '2.02', '-0.11', '-0.44', '-38.55', '51.45', '-129.90', '31.05', '85.01', '\r\n']
+
+
     if len(words) > 2:
-        #in AHRS firmware z axis points down, in ROS z axis points up (see REP 103)
-        yaw_deg = -float(words[0])
-        yaw_deg = yaw_deg + imu_yaw_calibration
-        if yaw_deg > 180.0:
-            yaw_deg = yaw_deg - 360.0
-        if yaw_deg < -180.0:
-            yaw_deg = yaw_deg + 360.0
-        yaw = yaw_deg*degrees2rad
-        #in AHRS firmware y axis points right, in ROS y axis points left (see REP 103)
-        pitch = -float(words[1])*degrees2rad
-        roll = float(words[2])*degrees2rad
+        # #in AHRS firmware z axis points down, in ROS z axis points up (see REP 103)
+        # yaw_deg = -float(words[0])
+        # yaw_deg = yaw_deg + imu_yaw_calibration
+        # if yaw_deg > 180.0:
+        #     yaw_deg = yaw_deg - 360.0
+        # if yaw_deg < -180.0:
+        #     yaw_deg = yaw_deg + 360.0
+        # yaw = yaw_deg*degrees2rad
+        # #in AHRS firmware y axis points right, in ROS y axis points left (see REP 103)
+        # pitch = -float(words[1])*degrees2rad
+        # roll = float(words[2])*degrees2rad
 
         # Publish message
         # AHRS firmware accelerations are negated
         # This means y and z are correct for ROS, but x needs reversing
-        imuMsg.linear_acceleration.x = -float(words[3]) * accel_factor
-        imuMsg.linear_acceleration.y = float(words[4]) * accel_factor
-        imuMsg.linear_acceleration.z = float(words[5]) * accel_factor
+        accel_start_index = 2
+        imuMsg.linear_acceleration.x = float(words[accel_start_index]) * accel_factor
+        imuMsg.linear_acceleration.y = float(words[accel_start_index + 1]) * accel_factor
+        imuMsg.linear_acceleration.z = float(words[accel_start_index + 2]) * accel_factor
 
-        imuMsg.angular_velocity.x = float(words[6])
+        imuMsg.angular_velocity.x = float(words[accel_start_index + 3]) * gyro_factor
         #in AHRS firmware y axis points right, in ROS y axis points left (see REP 103)
-        imuMsg.angular_velocity.y = -float(words[7])
+        imuMsg.angular_velocity.y = float(words[accel_start_index + 4]) * gyro_factor
         #in AHRS firmware z axis points down, in ROS z axis points up (see REP 103) 
-        imuMsg.angular_velocity.z = -float(words[8])
+        imuMsg.angular_velocity.z = float(words[accel_start_index + 5]) * gyro_factor
 
-    q = quaternion_from_euler(roll,pitch,yaw)
-    imuMsg.orientation.x = q[0]
-    imuMsg.orientation.y = q[1]
-    imuMsg.orientation.z = q[2]
-    imuMsg.orientation.w = q[3]
+    # q = quaternion_from_euler(roll,pitch,yaw)
+    # imuMsg.orientation.x = q[0]
+    # imuMsg.orientation.y = q[1]
+    # imuMsg.orientation.z = q[2]
+    # imuMsg.orientation.w = q[3]
     imuMsg.header.stamp= rospy.Time.now()
     imuMsg.header.frame_id = 'base_imu_link'
     imuMsg.header.seq = seq
     seq = seq + 1
     pub.publish(imuMsg)
 
-    if (diag_pub_time < rospy.get_time()) :
-        diag_pub_time += 1
-        diag_arr = DiagnosticArray()
-        diag_arr.header.stamp = rospy.get_rostime()
-        diag_arr.header.frame_id = '1'
-        diag_msg = DiagnosticStatus()
-        diag_msg.name = 'Razor_Imu'
-        diag_msg.level = DiagnosticStatus.OK
-        diag_msg.message = 'Received AHRS measurement'
-        diag_msg.values.append(KeyValue('roll (deg)',
-                                str(roll*(180.0/math.pi))))
-        diag_msg.values.append(KeyValue('pitch (deg)',
-                                str(pitch*(180.0/math.pi))))
-        diag_msg.values.append(KeyValue('yaw (deg)',
-                                str(yaw*(180.0/math.pi))))
-        diag_msg.values.append(KeyValue('sequence number', str(seq)))
-        diag_arr.status.append(diag_msg)
-        diag_pub.publish(diag_arr)
+    # if (diag_pub_time < rospy.get_time()) :
+    #     diag_pub_time += 1
+    #     diag_arr = DiagnosticArray()
+    #     diag_arr.header.stamp = rospy.get_rostime()
+    #     diag_arr.header.frame_id = '1'
+    #     diag_msg = DiagnosticStatus()
+    #     diag_msg.name = 'Razor_Imu'
+    #     diag_msg.level = DiagnosticStatus.OK
+    #     diag_msg.message = 'Received AHRS measurement'
+    #     diag_msg.values.append(KeyValue('roll (deg)',
+    #                             str(roll*(180.0/math.pi))))
+    #     diag_msg.values.append(KeyValue('pitch (deg)',
+    #                             str(pitch*(180.0/math.pi))))
+    #     diag_msg.values.append(KeyValue('yaw (deg)',
+    #                             str(yaw*(180.0/math.pi))))
+    #     diag_msg.values.append(KeyValue('sequence number', str(seq)))
+    #     diag_arr.status.append(diag_msg)
+    #     diag_pub.publish(diag_arr)
         
 ser.close
 #f.close
