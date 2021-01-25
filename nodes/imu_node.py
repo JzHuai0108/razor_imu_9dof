@@ -44,7 +44,6 @@ import string
 import math
 import sys
 
-#from time import time
 from sensor_msgs.msg import Imu
 from diagnostic_msgs.msg import DiagnosticArray
 
@@ -59,18 +58,22 @@ def main():
     parser = argparse.ArgumentParser(description='Get parameters for imu_node.', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--baudrate', metavar='baudrate', type=int, default=500000,
                         help='baudrate to connect to the serial port of the sparkfun IMU')
-    parser.add_argument('output_txt', metavar='output_txt', type=str,
+    parser.add_argument('--output_txt', metavar='output_txt', type=str, default='',
                         help='output txt')
     args = parser.parse_args()
+    if not args.output_txt:
+        import time
+        timestr = time.strftime("%Y%m%d-%H%M%S")
+        args.output_txt = '{}.log'.format(timestr)
+
     baudrate = int(args.baudrate)
-    degrees2rad = math.pi/180.0
-    imu_yaw_calibration = 0.0
 
     rospy.init_node("imu_node")
     #We only care about the most recent measurement, i.e. queue_size=1
     pub = rospy.Publisher('imu', Imu, queue_size=1)
     diag_pub = rospy.Publisher('diagnostics', DiagnosticArray, queue_size=1)
     diag_pub_time = rospy.get_time()
+    rospy.loginfo("Output file {}".format(args.output_txt))
 
     imuMsg = Imu()
 
