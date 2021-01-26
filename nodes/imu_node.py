@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 # Copyright (c) 2012, Tang Tiong Yew
 # All rights reserved.
@@ -31,7 +31,9 @@
 To use imu_node to record sparkfun openlog_artemis sensor data,
 1. use tera term or putty connect to it via serial port, configure its baud rate to the maximum value say 500000,
 Then configure the sample rate to 400Hz,
-Then set accelerometer data range say +/- 4g, gyro range say +/- 500 dps, also enable accelerometer LPF, and gyro LPF.
+Then set accelerometer data range say +/- 4g, gyro range say +/- 500 dps,
+also enable accelerometer LPF, and gyro LPF,
+also enable microseconds in timestamp configuration.
 2. catkin_make razor_imu_9dof
 3. source devel/setup.bash
 4. rosrun razor_imu_9dof imu_node.py
@@ -39,6 +41,7 @@ Then set accelerometer data range say +/- 4g, gyro range say +/- 500 dps, also e
 
 import argparse
 # import rospy
+import datetime
 import warnings
 
 import serial
@@ -53,10 +56,9 @@ import time
 
 def print_serial_port(ser):
     calib_data = ser.readlines()
-    calib_data_print = b""
+
     for line in calib_data:
-        calib_data_print += line
-    print(calib_data_print)
+        print(line)
 
 
 def main():
@@ -69,8 +71,10 @@ def main():
     parser.add_argument('--port', metavar='port', type=str, default='/dev/ttyUSB0',
                         help='IMU USB port')
     args = parser.parse_args()
+    hostBaselineTime = None
     if not args.output_txt:
-        timestr = time.strftime("%Y%m%d-%H%M%S")
+        hostBaselineTime = datetime.datetime.now()
+        timestr = hostBaselineTime.strftime("%Y%m%d-%H%M%S")
         args.output_txt = '{}.log'.format(timestr)
 
     baudrate = int(args.baudrate)
@@ -127,7 +131,7 @@ def main():
         sys.exit(0)
 
     logstream = open(args.output_txt, 'w')
-    logstream.write('timestamp[sec],gx(rad/s),gy,gz,ax(m/s^2),ay,az,date,time,temperature,rate\n')
+    logstream.write('#host-timestamp[sec],gx(rad/s),gy,gz,ax(m/s^2),ay,az,device-time[sec],date-time[sec],temperature,rate\n')
 
     # https://stackoverflow.com/questions/12371361/using-variables-in-signal-handler-require-global
     def signal_handler(sig, frame):
@@ -155,20 +159,31 @@ def main():
     time.sleep(1)
 
     print("Flushing first few IMU entries...")
-    for x in range(0, 20):
-        serialPort.readline()
+    deviceRefDate = None
+    while True:
+        binaryline = serialPort.readline()
+        line = binaryline.decode('ascii')
+        words = str.split(line, ",")
+        if len(words) > 2:
+            rtcDate = words[0]
+            m, d, y = rtcDate.split('/')
+            deviceRefDate = datetime.datetime(int(y), int(m), int(d))
+            logstream.write('#Time to start recording in host clock {} Device reference date {}\n'.
+                            format(hostBaselineTime, deviceRefDate))
+            print('Device reference date {}'.format(deviceRefDate))
+            break
 
     print("Publishing IMU data...")
     while True:
-        line = serialPort.readline()
-
+        binaryline = serialPort.readline()
+        line = binaryline.decode('ascii')
         words = str.split(line, ",")
         # date, time, accel, gyro, magnetometer, temperature, rate
-        # example words: ['01/01/2000', '00:04:04.34', '-1.95', '491.70', '-854.98',
+        # example words: ['01/01/2000', '00:04:04.34', '128238929', '-1.95', '491.70', '-854.98',
         # '2.02', '-0.11', '-0.44', '-38.55', '51.45', '-129.90', '31.05', '85.01', '\r\n']
 
         if len(words) > 2:
-            accel_start_index = 2
+            accel_start_index = 3
             axyz = [float(words[accel_start_index]) * accel_factor,
                     float(words[accel_start_index + 1]) * accel_factor,
                     float(words[accel_start_index + 2]) * accel_factor]
@@ -188,14 +203,24 @@ def main():
             # seq = seq + 1
             # pub.publish(imuMsg)
 
-            rtc_date = words[0]
-            rtc_time = words[1]
+            rtcDate = words[0]
+            rtcTime = words[1]
+            rtcSecs = float(words[2]) / 1000000
+            mon, d, y = rtcDate.split('/')
+            h, minute, s = rtcTime.split(':')
+            floatSec = float(s)
+            integerSec = int(floatSec)
+            decimalMicrosec = int((floatSec - integerSec) * 1000000)
+            dateTime = datetime.datetime(int(y), int(mon), int(d), int(h), int(minute), integerSec, decimalMicrosec)
+            elapsedDeviceTime = dateTime - deviceRefDate
+            elapsedSecs = elapsedDeviceTime.total_seconds()
+
             temperature = words[-3]
             rate = words[-2]
             currentTime = time.time()
-            message = "{:.9f},{},{},{},{},{},{},{},{},{},{}".format(
+            message = "{:.9f},{:.8f},{:.8f},{:.8f},{:.8f},{:.8f},{:.8f},{:.8f},{:.2f},{},{}".format(
                 currentTime, axyz[0], axyz[1], axyz[2], gxyz[0], gxyz[1], gxyz[2],
-                rtc_date, rtc_time, temperature, rate)
+                rtcSecs, elapsedSecs, temperature, rate)
             logstream.write("{}\n".format(message))
             # print(message)
 
