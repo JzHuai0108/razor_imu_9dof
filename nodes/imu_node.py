@@ -175,14 +175,17 @@ def main():
 
     print("Publishing IMU data...")
     while True:
-        binaryline = serialPort.readline()
-        line = binaryline.decode('ascii')
-        words = str.split(line, ",")
-        # date, time, accel, gyro, magnetometer, temperature, rate
-        # example words: ['01/01/2000', '00:04:04.34', '128238929', '-1.95', '491.70', '-854.98',
-        # '2.02', '-0.11', '-0.44', '-38.55', '51.45', '-129.90', '31.05', '85.01', '\r\n']
+        try:
+            binaryline = serialPort.readline()
+            line = binaryline.decode('ascii')
+            words = str.split(line, ",")
+            # date, time, accel, gyro, magnetometer, temperature, rate
+            # example words: ['01/01/2000', '00:04:04.34', '128238929', '-1.95', '491.70', '-854.98',
+            # '2.02', '-0.11', '-0.44', '-38.55', '51.45', '-129.90', '31.05', '85.01', '\r\n']
 
-        if len(words) > 2:
+            if len(words) <= 2:
+                continue
+
             accel_start_index = 3
             axyz = [float(words[accel_start_index]) * accel_factor,
                     float(words[accel_start_index + 1]) * accel_factor,
@@ -223,6 +226,8 @@ def main():
                 rtcSecs, elapsedSecs, temperature, rate)
             logstream.write("{}\n".format(message))
             # print(message)
+        except Exception as e:
+            print(e)
 
 
 if __name__ == "__main__":
