@@ -30,13 +30,16 @@
 """
 To use imu_node to record sparkfun openlog_artemis sensor data,
 1. use tera term or putty connect to it via serial port, configure its baud rate to the maximum value say 500000,
-Then configure the sample rate to 400Hz,
+Then in configure terminal output, disable log to microSD, and set the sample rate to 400Hz,
+Note log to microSD is half as fast as log to a host computer.
 Then set accelerometer data range say +/- 4g, gyro range say +/- 500 dps,
 also enable accelerometer LPF, and gyro LPF,
 also enable microseconds in timestamp configuration.
 2. catkin_make razor_imu_9dof
 3. source devel/setup.bash
 4. rosrun razor_imu_9dof imu_node.py
+Warning: the upper bound for the device time of microsecond precision is 4295 sec (72 minutes).
+So watch out for the time resets.
 """
 
 import argparse
