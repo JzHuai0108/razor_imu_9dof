@@ -31,15 +31,24 @@
 To use imu_node to record sparkfun openlog_artemis sensor data,
 1. use tera term or putty connect to it via serial port, configure its baud rate to the maximum value say 500000,
 Then in configure terminal output, disable log to microSD, and set the sample rate to 400Hz,
-Note log to microSD is half as fast as log to a host computer.
+Doing so is because logging to microSD is half as fast as log to a host computer.
 Then set accelerometer data range say +/- 4g, gyro range say +/- 500 dps,
 also enable accelerometer LPF, and gyro LPF,
 also enable microseconds in timestamp configuration.
 2. catkin_make razor_imu_9dof
 3. source devel/setup.bash
 4. rosrun razor_imu_9dof imu_node.py
-Warning: the upper bound for the device time of microsecond precision is 4295 sec (72 minutes).
+
+Note 1: the upper bound for the device time of microsecond precision is 4295 sec (72 minutes).
 So watch out for the time resets.
+Note 2: When the cable connects the Raspberry Pi 4B and the openlog artemis,
+the Raspberry Pi won't boot up.
+
+In Ubuntu, use putty to communicate with openlog artemis,
+install putty with
+sudo apt-get install putty
+Then communicate with openlog artemis
+sudo putty /dev/ttyUSB0 -serial -sercfg 500000,8,n,1,N
 """
 
 import argparse
@@ -224,7 +233,7 @@ def main():
             temperature = words[-3]
             rate = words[-2]
             currentTime = time.time()
-            message = "{:.9f},{:.8f},{:.8f},{:.8f},{:.8f},{:.8f},{:.8f},{:.8f},{:.2f},{},{}".format(
+            message = "{:.8f},{:.8f},{:.8f},{:.8f},{:.8f},{:.8f},{:.8f},{:.8f},{:.2f},{},{}".format(
                 currentTime, axyz[0], axyz[1], axyz[2], gxyz[0], gxyz[1], gxyz[2],
                 rtcSecs, elapsedSecs, temperature, rate)
             logstream.write("{}\n".format(message))
