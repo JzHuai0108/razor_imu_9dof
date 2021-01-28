@@ -234,7 +234,7 @@ def main():
             rate = words[-2]
             currentTime = time.time()
             message = "{:.8f},{:.8f},{:.8f},{:.8f},{:.8f},{:.8f},{:.8f},{:.8f},{:.2f},{},{}".format(
-                currentTime, axyz[0], axyz[1], axyz[2], gxyz[0], gxyz[1], gxyz[2],
+                currentTime, gxyz[0], gxyz[1], gxyz[2], axyz[0], axyz[1], axyz[2],
                 rtcSecs, elapsedSecs, temperature, rate)
             logstream.write("{}\n".format(message))
             # print(message)
