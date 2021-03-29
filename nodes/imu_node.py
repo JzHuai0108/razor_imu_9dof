@@ -29,6 +29,13 @@
 
 """
 To use imu_node to record sparkfun openlog_artemis sensor data,
+
+First upload the firmware with Artemis-Firmware-Upload-GUI.
+As of April 1 2021, the firmware version OpenLog_Artemis-V10-v19_BETA in commit 2ce16aa05db1933baf4480c85ff2995632b31872
+at git@github.com:sparkfun/OpenLog_Artemis.git has a max logging frequency 230Hz.
+But the latest OpenLog_Artemis-V10-v19 in commit 4d833a7f1229c10ca5eb5d78af01843cd7c73f63 and
+OpenLog_Artemis-V10-v19-BETA in commit d669a8eda165907538d433f2d542e748f140ad33 have a max logging frequency of 170 Hz.
+Then, proceed with the following steps:
 1. use tera term or putty connect to it via serial port, configure its baud rate to the maximum value say 500000,
 Then in configure terminal output, disable log to microSD, and set the sample rate to 400Hz,
 Doing so is because logging to microSD is half as fast as log to a host computer.
