@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
 # Copyright (c) 2012, Tang Tiong Yew
 # All rights reserved.
@@ -46,10 +46,14 @@ also enable microseconds in timestamp configuration.
 3. source devel/setup.bash
 4. rosrun razor_imu_9dof imu_node.py
 
+Depends on pyyaml which can be installed with
+sudo pip install pyyaml
+
 Note 1: the upper bound for the device time of microsecond precision is 4295 sec (72 minutes).
 So watch out for the time resets.
 Note 2: When the cable connects the Raspberry Pi 4B and the openlog artemis,
 the Raspberry Pi won't boot up.
+Note 3: The program can run in python3 if the ros parts are commented out. Otherwise, python2 is required.
 
 In Ubuntu, use putty to communicate with openlog artemis,
 install putty with
@@ -80,6 +84,166 @@ def print_serial_port(ser):
     for line in calib_data:
         print(line)
 
+class ImuRecorder(object):
+    def __init__(self):
+        self.pub = None
+        self.imuMsg = None
+        self.seq = 0
+        self.queue_size = 1
+        self.serialPort = None
+        self.logstream = None
+        self.deviceRefDate = None
+
+    def initRosNode(self):
+        rospy.init_node("imu_node")
+        # We only care about the most recent measurement, i.e. queue_size=1
+        self.pub = rospy.Publisher('/imu0', Imu, queue_size = self.queue_size)
+        # diag_pub = rospy.Publisher('diagnostics', DiagnosticArray, queue_size=1)
+        # diag_pub_time = rospy.get_time()
+
+        self.imuMsg = Imu()
+
+        # Orientation covariance estimation:
+        # Observed orientation noise: 0.3 degrees in x, y, 0.6 degrees in z
+        # Magnetometer linearity: 0.1% of full scale (+/- 2 gauss) => 4 milligauss
+        # Earth's magnetic field strength is ~0.5 gauss, so magnetometer nonlinearity could
+        # cause ~0.8% yaw error (4mgauss/0.5 gauss = 0.008) => 2.8 degrees, or 0.050 radians
+        # i.e. variance in yaw: 0.0025
+        # Accelerometer non-linearity: 0.2% of 4G => 0.008G. This could cause
+        # static roll/pitch error of 0.8%, owing to gravity orientation sensing
+        # error => 2.8 degrees, or 0.05 radians. i.e. variance in roll/pitch: 0.0025
+        # so set all covariances the same.
+        self.imuMsg.orientation_covariance = [
+            0.0025 , 0 , 0,
+            0, 0.0025, 0,
+            0, 0, 0.0025 ]
+
+        # Angular velocity covariance estimation:
+        # Observed gyro noise: 4 counts => 0.28 degrees/sec
+        # nonlinearity spec: 0.2% of full scale => 8 degrees/sec = 0.14 rad/sec
+        # Choosing the larger (0.14) as std dev, variance = 0.14^2 ~= 0.02
+        self.imuMsg.angular_velocity_covariance = [
+            0.02, 0 , 0,
+            0 , 0.02, 0,
+            0 , 0 , 0.02 ]
+
+        # linear acceleration covariance estimation:
+        # observed acceleration noise: 5 counts => 20milli-G's ~= 0.2m/s^2
+        # nonliniarity spec: 0.5% of full scale => 0.2m/s^2
+        # Choosing 0.2 as std dev, variance = 0.2^2 = 0.04
+        self.imuMsg.linear_acceleration_covariance = [
+            0.04 , 0 , 0,
+            0 , 0.04, 0,
+            0 , 0 , 0.04 ]
+
+    def openSerialPort(self, port, baudrate):
+        print("Opening {}...".format(port))
+        try:
+            self.serialPort = serial.Serial(port=port, baudrate=baudrate, timeout=1)
+        except serial.serialutil.SerialException:
+            warnings.warn("IMU not found at port "+ port + ". Did you specify the correct port in the launch file?\n"
+                        "Go to /dev/ttyUSB* to check the USB port number. If need be, 'sudo chmod 777 /dev/ttyUSB0'.")
+            sys.exit(0)
+
+    def openLogStream(self, output_txt):
+        self.logstream = open(output_txt, 'w')
+        self.logstream.write('#host-timestamp[sec],gx(rad/s),gy,gz,ax(m/s^2),ay,az,device-time[sec],date-time[sec],temperature,rate\n')
+
+    def closeLogStream(self):
+        self.serialPort.close
+        self.logstream.close
+
+    def flushSerialPort(self, hostBaselineTime):
+        print("Giving the razor IMU board a few seconds to boot...")
+        time.sleep(2)
+        cmd = 'h' + chr(13)
+        self.serialPort.write(cmd.encode())
+        time.sleep(1)
+        print_serial_port(self.serialPort)
+
+        cmd = 'x' + chr(13)
+        self.serialPort.write(cmd.encode())
+        time.sleep(1)
+
+        print("Flushing first few IMU entries...")
+
+        while True:
+            binaryline = self.serialPort.readline()
+            # line = binaryline.decode('ascii')  # decode is needed for python3.
+            line = binaryline
+            words = str.split(line, ",")
+            if len(words) > 2:
+                rtcDate = words[0]
+                m, d, y = rtcDate.split('/')
+                self.deviceRefDate = datetime.datetime(int(y), int(m), int(d))
+                self.logstream.write('#Time to start recording in host clock {} Device reference date {}\n'.
+                                format(hostBaselineTime, self.deviceRefDate))
+                print('Device reference date {}'.format(self.deviceRefDate))
+                break
+
+    def publishImu(self, deviceTime, axyz, gxyz):
+        self.imuMsg.header.stamp = rospy.Time.from_sec(deviceTime)
+        self.imuMsg.header.frame_id = 'base_imu_link'
+        self.imuMsg.header.seq = self.seq
+        self.imuMsg.linear_acceleration.x = axyz[0]
+        self.imuMsg.linear_acceleration.y = axyz[1]
+        self.imuMsg.linear_acceleration.z = axyz[2]
+        self.imuMsg.angular_velocity.x = gxyz[0]
+        self.imuMsg.angular_velocity.y = gxyz[1]
+        self.imuMsg.angular_velocity.z = gxyz[2]
+        self.seq = self.seq + 1
+        self.pub.publish(self.imuMsg)
+
+    def logImuLoop(self):
+        print("Publishing IMU data...")
+        while True:
+            try:
+                binaryline = self.serialPort.readline()
+                # line = binaryline.decode('ascii')  # decode is needed for python3.
+                line = binaryline
+                words = str.split(line, ",")
+                # date, time, accel, gyro, magnetometer, temperature, rate
+                # example words: ['01/01/2000', '00:04:04.34', '128238929', '-1.95', '491.70', '-854.98',
+                # '2.02', '-0.11', '-0.44', '-38.55', '51.45', '-129.90', '31.05', '85.01', '\r\n']
+
+                if len(words) <= 2:
+                    continue
+                # see https://github.com/sparkfun/OpenLog_Artemis/blob/master/SENSOR_UNITS.md
+                accel_factor = 9.80665 / 1000.0    # sensor reports accel in units of 1 milli G (9.8m/s^2). Convert to m/s^2.
+                gyro_factor = math.pi / 180
+                accel_start_index = 3
+                axyz = [float(words[accel_start_index]) * accel_factor,
+                        float(words[accel_start_index + 1]) * accel_factor,
+                        float(words[accel_start_index + 2]) * accel_factor]
+                gxyz = [float(words[accel_start_index + 3]) * gyro_factor,
+                        float(words[accel_start_index + 4]) * gyro_factor,
+                        float(words[accel_start_index + 5]) * gyro_factor]
+
+                rtcDate = words[0]
+                rtcTime = words[1]
+                rtcSecs = float(words[2]) / 1000000
+                mon, d, y = rtcDate.split('/')
+                h, minute, s = rtcTime.split(':')
+                floatSec = float(s)
+                integerSec = int(floatSec)
+                decimalMicrosec = int((floatSec - integerSec) * 1000000)
+                dateTime = datetime.datetime(int(y), int(mon), int(d), int(h), int(minute), integerSec, decimalMicrosec)
+                elapsedDeviceTime = dateTime - self.deviceRefDate
+                elapsedSecs = elapsedDeviceTime.total_seconds()
+
+                temperature = words[-3]
+                rate = words[-2]
+                currentTime = time.time()
+                message = "{:.8f},{:.8f},{:.8f},{:.8f},{:.8f},{:.8f},{:.8f},{:.8f},{:.2f},{},{}".format(
+                    currentTime, gxyz[0], gxyz[1], gxyz[2], axyz[0], axyz[1], axyz[2],
+                    rtcSecs, elapsedSecs, temperature, rate)
+                self.logstream.write("{}\n".format(message))
+
+                self.publishImu(rtcSecs, axyz, gxyz)
+
+            except Exception as e:
+                print(e)
+
 
 def main():
     parser = argparse.ArgumentParser(description='Get parameters for imu_node.',
@@ -97,156 +261,22 @@ def main():
         timestr = hostBaselineTime.strftime("%Y%m%d-%H%M%S")
         args.output_txt = '{}.log'.format(timestr)
 
-    baudrate = int(args.baudrate)
-
-    rospy.init_node("imu_node")
-    # We only care about the most recent measurement, i.e. queue_size=1
-    pub = rospy.Publisher('/imu0', Imu, queue_size=1)
-    # diag_pub = rospy.Publisher('diagnostics', DiagnosticArray, queue_size=1)
-    # diag_pub_time = rospy.get_time()
-
-    imuMsg = Imu()
-
-    # Orientation covariance estimation:
-    # Observed orientation noise: 0.3 degrees in x, y, 0.6 degrees in z
-    # Magnetometer linearity: 0.1% of full scale (+/- 2 gauss) => 4 milligauss
-    # Earth's magnetic field strength is ~0.5 gauss, so magnetometer nonlinearity could
-    # cause ~0.8% yaw error (4mgauss/0.5 gauss = 0.008) => 2.8 degrees, or 0.050 radians
-    # i.e. variance in yaw: 0.0025
-    # Accelerometer non-linearity: 0.2% of 4G => 0.008G. This could cause
-    # static roll/pitch error of 0.8%, owing to gravity orientation sensing
-    # error => 2.8 degrees, or 0.05 radians. i.e. variance in roll/pitch: 0.0025
-    # so set all covariances the same.
-    imuMsg.orientation_covariance = [
-        0.0025 , 0 , 0,
-        0, 0.0025, 0,
-        0, 0, 0.0025 ]
-
-    # Angular velocity covariance estimation:
-    # Observed gyro noise: 4 counts => 0.28 degrees/sec
-    # nonlinearity spec: 0.2% of full scale => 8 degrees/sec = 0.14 rad/sec
-    # Choosing the larger (0.14) as std dev, variance = 0.14^2 ~= 0.02
-    imuMsg.angular_velocity_covariance = [
-        0.02, 0 , 0,
-        0 , 0.02, 0,
-        0 , 0 , 0.02 ]
-
-    # linear acceleration covariance estimation:
-    # observed acceleration noise: 5 counts => 20milli-G's ~= 0.2m/s^2
-    # nonliniarity spec: 0.5% of full scale => 0.2m/s^2
-    # Choosing 0.2 as std dev, variance = 0.2^2 = 0.04
-    imuMsg.linear_acceleration_covariance = [
-        0.04 , 0 , 0,
-        0 , 0.04, 0,
-        0 , 0 , 0.04 ]
-
-    print("Opening {}...".format(args.port))
-    try:
-        serialPort = serial.Serial(port=args.port, baudrate=baudrate, timeout=1)
-    except serial.serialutil.SerialException:
-        warnings.warn("IMU not found at port "+args.port + ". Did you specify the correct port in the launch file?\n"
-                      "Go to /dev/ttyUSB* to check the USB port number. If need be, 'sudo chmod 777 /dev/ttyUSB0'.")
-        sys.exit(0)
-
-    logstream = open(args.output_txt, 'w')
-    logstream.write('#host-timestamp[sec],gx(rad/s),gy,gz,ax(m/s^2),ay,az,device-time[sec],date-time[sec],temperature,rate\n')
+    recorder = ImuRecorder()
+    recorder.openSerialPort(args.port, int(args.baudrate))
+    recorder.initRosNode()
+    recorder.openLogStream(args.output_txt)
 
     # https://stackoverflow.com/questions/12371361/using-variables-in-signal-handler-require-global
     def signal_handler(sig, frame):
         print('Closing serial port and log stream...!')
-        serialPort.close
-        logstream.close
+        recorder.closeLogStream()
         sys.exit(0)
 
     signal.signal(signal.SIGINT, signal_handler)
 
-    seq = 0
-    # see https://github.com/sparkfun/OpenLog_Artemis/blob/master/SENSOR_UNITS.md
-    accel_factor = 9.80665 / 1000.0    # sensor reports accel in units of 1 milli G (9.8m/s^2). Convert to m/s^2.
-    gyro_factor = math.pi / 180
-    print("Giving the razor IMU board a few seconds to boot...")
-    time.sleep(2)
-    cmd = 'h' + chr(13)
-    serialPort.write(cmd.encode())
-    time.sleep(1)
-    print_serial_port(serialPort)
-
+    recorder.flushSerialPort(hostBaselineTime)
     print("Start data stream to {}...".format(args.output_txt))
-    cmd = 'x' + chr(13)
-    serialPort.write(cmd.encode())
-    time.sleep(1)
-
-    print("Flushing first few IMU entries...")
-    deviceRefDate = None
-    while True:
-        binaryline = serialPort.readline()
-        line = binaryline.decode('ascii')
-        words = str.split(line, ",")
-        if len(words) > 2:
-            rtcDate = words[0]
-            m, d, y = rtcDate.split('/')
-            deviceRefDate = datetime.datetime(int(y), int(m), int(d))
-            logstream.write('#Time to start recording in host clock {} Device reference date {}\n'.
-                            format(hostBaselineTime, deviceRefDate))
-            print('Device reference date {}'.format(deviceRefDate))
-            break
-
-    print("Publishing IMU data...")
-    while True:
-        try:
-            binaryline = serialPort.readline()
-            line = binaryline.decode('ascii')
-            words = str.split(line, ",")
-            # date, time, accel, gyro, magnetometer, temperature, rate
-            # example words: ['01/01/2000', '00:04:04.34', '128238929', '-1.95', '491.70', '-854.98',
-            # '2.02', '-0.11', '-0.44', '-38.55', '51.45', '-129.90', '31.05', '85.01', '\r\n']
-
-            if len(words) <= 2:
-                continue
-
-            accel_start_index = 3
-            axyz = [float(words[accel_start_index]) * accel_factor,
-                    float(words[accel_start_index + 1]) * accel_factor,
-                    float(words[accel_start_index + 2]) * accel_factor]
-            gxyz = [float(words[accel_start_index + 3]) * gyro_factor,
-                    float(words[accel_start_index + 4]) * gyro_factor,
-                    float(words[accel_start_index + 5]) * gyro_factor]
-
-            rtcDate = words[0]
-            rtcTime = words[1]
-            rtcSecs = float(words[2]) / 1000000
-            mon, d, y = rtcDate.split('/')
-            h, minute, s = rtcTime.split(':')
-            floatSec = float(s)
-            integerSec = int(floatSec)
-            decimalMicrosec = int((floatSec - integerSec) * 1000000)
-            dateTime = datetime.datetime(int(y), int(mon), int(d), int(h), int(minute), integerSec, decimalMicrosec)
-            elapsedDeviceTime = dateTime - deviceRefDate
-            elapsedSecs = elapsedDeviceTime.total_seconds()
-
-            temperature = words[-3]
-            rate = words[-2]
-            currentTime = time.time()
-            message = "{:.8f},{:.8f},{:.8f},{:.8f},{:.8f},{:.8f},{:.8f},{:.8f},{:.2f},{},{}".format(
-                currentTime, gxyz[0], gxyz[1], gxyz[2], axyz[0], axyz[1], axyz[2],
-                rtcSecs, elapsedSecs, temperature, rate)
-            logstream.write("{}\n".format(message))
-
-            imuMsg.header.stamp = rospy.Time.from_sec(rtcSecs)
-            imuMsg.header.frame_id = 'base_imu_link'
-            imuMsg.header.seq = seq
-            imuMsg.linear_acceleration.x = axyz[0]
-            imuMsg.linear_acceleration.y = axyz[1]
-            imuMsg.linear_acceleration.z = axyz[2]
-            imuMsg.angular_velocity.x = gxyz[0]
-            imuMsg.angular_velocity.y = gxyz[1]
-            imuMsg.angular_velocity.z = gxyz[2]
-            seq = seq + 1
-            pub.publish(imuMsg)
-
-        except Exception as e:
-            print(e)
-
+    recorder.logImuLoop()
 
 if __name__ == "__main__":
     main()
