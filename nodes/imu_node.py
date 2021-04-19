@@ -245,7 +245,14 @@ class ImuRecorder(object):
                 print(e)
 
 
-def main():
+class Arguments(object):
+    def __init__(self):
+        self.baudrate = 500000
+        self.output_txt = None
+        self.port = "/dev/ttyUSB0"
+
+
+def parseArgs():
     parser = argparse.ArgumentParser(description='Get parameters for imu_node.',
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--baudrate', metavar='baudrate', type=int, default=500000,
@@ -255,6 +262,13 @@ def main():
     parser.add_argument('--port', metavar='port', type=str, default='/dev/ttyUSB0',
                         help='IMU USB port')
     args = parser.parse_args()
+    return args
+
+
+def main():
+    # args = parseArgs()
+    args = Arguments()
+
     hostBaselineTime = None
     if not args.output_txt:
         hostBaselineTime = datetime.datetime.now()
