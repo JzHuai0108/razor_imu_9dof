@@ -59,7 +59,7 @@ sudo putty /dev/ttyUSB0 -serial -sercfg 500000,8,n,1,N
 """
 
 import argparse
-# import rospy
+
 import datetime
 import warnings
 
@@ -70,7 +70,8 @@ import math
 import sys
 import time
 
-# from sensor_msgs.msg import Imu
+import rospy
+from sensor_msgs.msg import Imu
 # from diagnostic_msgs.msg import DiagnosticArray
 
 def print_serial_port(ser):
@@ -98,13 +99,13 @@ def main():
 
     baudrate = int(args.baudrate)
 
-    # rospy.init_node("imu_node")
-    #We only care about the most recent measurement, i.e. queue_size=1
-    # pub = rospy.Publisher('imu', Imu, queue_size=1)
+    rospy.init_node("imu_node")
+    # We only care about the most recent measurement, i.e. queue_size=1
+    pub = rospy.Publisher('/imu0', Imu, queue_size=1)
     # diag_pub = rospy.Publisher('diagnostics', DiagnosticArray, queue_size=1)
     # diag_pub_time = rospy.get_time()
 
-    # imuMsg = Imu()
+    imuMsg = Imu()
 
     # Orientation covariance estimation:
     # Observed orientation noise: 0.3 degrees in x, y, 0.6 degrees in z
@@ -116,30 +117,28 @@ def main():
     # static roll/pitch error of 0.8%, owing to gravity orientation sensing
     # error => 2.8 degrees, or 0.05 radians. i.e. variance in roll/pitch: 0.0025
     # so set all covariances the same.
-    # imuMsg.orientation_covariance = [
-    # 0.0025 , 0 , 0,
-    # 0, 0.0025, 0,
-    # 0, 0, 0.0025 ]
+    imuMsg.orientation_covariance = [
+        0.0025 , 0 , 0,
+        0, 0.0025, 0,
+        0, 0, 0.0025 ]
 
     # Angular velocity covariance estimation:
     # Observed gyro noise: 4 counts => 0.28 degrees/sec
     # nonlinearity spec: 0.2% of full scale => 8 degrees/sec = 0.14 rad/sec
     # Choosing the larger (0.14) as std dev, variance = 0.14^2 ~= 0.02
-    # imuMsg.angular_velocity_covariance = [
-    # 0.02, 0 , 0,
-    # 0 , 0.02, 0,
-    # 0 , 0 , 0.02 ]
+    imuMsg.angular_velocity_covariance = [
+        0.02, 0 , 0,
+        0 , 0.02, 0,
+        0 , 0 , 0.02 ]
 
     # linear acceleration covariance estimation:
     # observed acceleration noise: 5 counts => 20milli-G's ~= 0.2m/s^2
     # nonliniarity spec: 0.5% of full scale => 0.2m/s^2
     # Choosing 0.2 as std dev, variance = 0.2^2 = 0.04
-    # imuMsg.linear_acceleration_covariance = [
-    # 0.04 , 0 , 0,
-    # 0 , 0.04, 0,
-    # 0 , 0 , 0.04 ]
-
-    # arg.port = rospy.get_param('~port', args.port)
+    imuMsg.linear_acceleration_covariance = [
+        0.04 , 0 , 0,
+        0 , 0.04, 0,
+        0 , 0 , 0.04 ]
 
     print("Opening {}...".format(args.port))
     try:
@@ -161,7 +160,7 @@ def main():
 
     signal.signal(signal.SIGINT, signal_handler)
 
-    # seq = 0
+    seq = 0
     # see https://github.com/sparkfun/OpenLog_Artemis/blob/master/SENSOR_UNITS.md
     accel_factor = 9.80665 / 1000.0    # sensor reports accel in units of 1 milli G (9.8m/s^2). Convert to m/s^2.
     gyro_factor = math.pi / 180
@@ -213,18 +212,6 @@ def main():
                     float(words[accel_start_index + 4]) * gyro_factor,
                     float(words[accel_start_index + 5]) * gyro_factor]
 
-            # imuMsg.header.stamp = rospy.Time.now()
-            # imuMsg.header.frame_id = 'base_imu_link'
-            # imuMsg.header.seq = seq
-            # imuMsg.linear_acceleration.x = axyz[0]
-            # imuMsg.linear_acceleration.y = axyz[1]
-            # imuMsg.linear_acceleration.z = axyz[2]
-            # imuMsg.angular_velocity.x = gxyz[0]
-            # imuMsg.angular_velocity.y = gxyz[1]
-            # imuMsg.angular_velocity.z = gxyz[2]
-            # seq = seq + 1
-            # pub.publish(imuMsg)
-
             rtcDate = words[0]
             rtcTime = words[1]
             rtcSecs = float(words[2]) / 1000000
@@ -244,7 +231,19 @@ def main():
                 currentTime, gxyz[0], gxyz[1], gxyz[2], axyz[0], axyz[1], axyz[2],
                 rtcSecs, elapsedSecs, temperature, rate)
             logstream.write("{}\n".format(message))
-            # print(message)
+
+            imuMsg.header.stamp = rospy.Time.from_sec(rtcSecs)
+            imuMsg.header.frame_id = 'base_imu_link'
+            imuMsg.header.seq = seq
+            imuMsg.linear_acceleration.x = axyz[0]
+            imuMsg.linear_acceleration.y = axyz[1]
+            imuMsg.linear_acceleration.z = axyz[2]
+            imuMsg.angular_velocity.x = gxyz[0]
+            imuMsg.angular_velocity.y = gxyz[1]
+            imuMsg.angular_velocity.z = gxyz[2]
+            seq = seq + 1
+            pub.publish(imuMsg)
+
         except Exception as e:
             print(e)
 
