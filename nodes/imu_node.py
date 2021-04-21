@@ -150,22 +150,33 @@ class ImuRecorder(object):
         self.logstream.write('#host-timestamp[sec],gx(rad/s),gy,gz,ax(m/s^2),ay,az,device-time[sec],date-time[sec],temperature,rate\n')
 
     def closeLogStream(self):
+        cmd = 'h' + chr(13)
+        self.serialPort.write(cmd.encode())
+        time.sleep(0.2)
+        print_serial_port(self.serialPort)
+        cmd = 'q' + chr(13)
+        self.serialPort.write(cmd.encode())
+        time.sleep(0.2)
+        print_serial_port(self.serialPort)
+        cmd = 'y' + chr(13)
+        self.serialPort.write(cmd.encode())
+        time.sleep(0.2)
+        print_serial_port(self.serialPort)
+        print("Closing the serial port. All lights on the IMU should have been turned off!")
         self.serialPort.close
         self.logstream.close
 
     def flushSerialPort(self, hostBaselineTime):
-        print("Giving the razor IMU board a few seconds to boot...")
-        time.sleep(2)
+        print("Flushing first few IMU entries...")
+        time.sleep(1.0)
         cmd = 'h' + chr(13)
         self.serialPort.write(cmd.encode())
-        time.sleep(1)
+        time.sleep(0.2)
         print_serial_port(self.serialPort)
 
         cmd = 'x' + chr(13)
         self.serialPort.write(cmd.encode())
-        time.sleep(1)
-
-        print("Flushing first few IMU entries...")
+        time.sleep(0.2)        
 
         while True:
             binaryline = self.serialPort.readline()
