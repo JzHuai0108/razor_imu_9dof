@@ -73,8 +73,8 @@ import math
 import sys
 import time
 
-import rospy
-from sensor_msgs.msg import Imu
+# import rospy
+# from sensor_msgs.msg import Imu
 # from diagnostic_msgs.msg import DiagnosticArray
 
 def print_serial_port(ser):
@@ -253,7 +253,7 @@ class ImuRecorder(object):
                     rtcSecs, elapsedSecs, temperature, rate)
                 self.logstream.write("{}\n".format(message))
 
-                self.publishImu(rtcSecs, axyz, gxyz)
+                # self.publishImu(rtcSecs, axyz, gxyz)
 
             except Exception as e:
                 print(e)
@@ -267,21 +267,23 @@ class Arguments(object):
 
 
 def parseArgs():
-    parser = argparse.ArgumentParser(description='Get parameters for imu_node.',
+    parser = argparse.ArgumentParser(description='Log data to a text file and/or ROS topics for Openlog Artemis IMU board.\n'
+                                    'To exit the program, press Ctrl + C in Linux, or Ctrl + Break in Windows. \n'
+                                    'In Windows, you have to poweroff after logging is stopped.',
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--baudrate', metavar='baudrate', type=int, default=500000,
                         help='baudrate to connect to the serial port of the sparkfun IMU')
     parser.add_argument('--output_txt', metavar='output_txt', type=str, default='',
                         help='output txt')
     parser.add_argument('--port', metavar='port', type=str, default='/dev/ttyUSB0',
-                        help='IMU USB port')
+                        help='IMU USB port. On windows, port should be like COM9.')
     args = parser.parse_args()
     return args
 
 
 def main():
-    # args = parseArgs()
-    args = Arguments()
+    args = parseArgs()
+    # args = Arguments()
 
     hostBaselineTime = None
     if not args.output_txt:
@@ -291,7 +293,7 @@ def main():
 
     recorder = ImuRecorder()
     recorder.openSerialPort(args.port, int(args.baudrate))
-    recorder.initRosNode()
+    # recorder.initRosNode()
     recorder.openLogStream(args.output_txt)
 
     # https://stackoverflow.com/questions/12371361/using-variables-in-signal-handler-require-global
