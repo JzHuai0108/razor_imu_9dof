@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 # Copyright (c) 2012, Tang Tiong Yew
 # All rights reserved.
@@ -53,7 +53,6 @@ Note 1: the upper bound for the device time of microsecond precision is 4295 sec
 So watch out for the time resets.
 Note 2: When the cable connects the Raspberry Pi 4B and the openlog artemis,
 the Raspberry Pi won't boot up.
-Note 3: The program can run in python3 if the ros parts are commented out. Otherwise, python2 is required.
 
 In Ubuntu, use putty to communicate with openlog artemis,
 install putty with
@@ -180,8 +179,10 @@ class ImuRecorder(object):
 
         while True:
             binaryline = self.serialPort.readline()
-            # line = binaryline.decode('ascii')  # decode is needed for python3.
-            line = binaryline
+            if sys.version_info[0] < 3:
+                line = binaryline
+            else:
+                line = binaryline.decode('ascii')
             words = str.split(line, ",")
             if len(words) > 2:
                 rtcDate = words[0]
@@ -210,8 +211,10 @@ class ImuRecorder(object):
         while True:
             try:
                 binaryline = self.serialPort.readline()
-                # line = binaryline.decode('ascii')  # decode is needed for python3.
-                line = binaryline
+                if sys.version_info[0] < 3:
+                    line = binaryline
+                else:
+                    line = binaryline.decode('ascii')
                 words = str.split(line, ",")
                 # date, time, accel, gyro, magnetometer, temperature, rate
                 # example words: ['01/01/2000', '00:04:04.34', '128238929', '-1.95', '491.70', '-854.98',
