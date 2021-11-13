@@ -29,36 +29,117 @@
 
 """
 To use imu_node to record sparkfun openlog_artemis sensor data,
-
-First upload the firmware with Artemis-Firmware-Upload-GUI.
-As of April 1 2021, the firmware version OpenLog_Artemis-V10-v19_BETA in commit 2ce16aa05db1933baf4480c85ff2995632b31872
-at git@github.com:sparkfun/OpenLog_Artemis.git has a max logging frequency 230Hz.
+prepare the openlog artemis board as below.
+1. upload the firmware (version OpenLog_Artemis-V10-v19_BETA in commit 
+2ce16aa05db1933baf4480c85ff2995632b31872 of Openlog Artemis repo) with Artemis-Firmware-Upload-GUI.
+As of April 1 2021, the firmware version OpenLog_Artemis-V10-v19_BETA in commit 
+2ce16aa05db1933baf4480c85ff2995632b31872 at git@github.com:sparkfun/OpenLog_Artemis.git 
+has a max logging frequency 230Hz.
 But the latest OpenLog_Artemis-V10-v19 in commit 4d833a7f1229c10ca5eb5d78af01843cd7c73f63 and
-OpenLog_Artemis-V10-v19-BETA in commit d669a8eda165907538d433f2d542e748f140ad33 have a max logging frequency of 170 Hz.
-Then, proceed with the following steps:
-1. use tera term or putty connect to it via serial port, configure its baud rate to the maximum value say 500000,
-Then in configure terminal output, disable log to microSD, and set the sample rate to 400Hz,
-Doing so is because logging to microSD is half as fast as log to a host computer.
-Then set accelerometer data range say +/- 4g, gyro range say +/- 500 dps,
-also enable accelerometer LPF, and gyro LPF,
-also enable microseconds in timestamp configuration.
-2. catkin_make razor_imu_9dof
-3. source devel/setup.bash
-4. rosrun razor_imu_9dof imu_node.py
+OpenLog_Artemis-V10-v19-BETA in commit d669a8eda165907538d433f2d542e748f140ad33 
+have a max logging frequency of 170 Hz.
 
-Depends on pyyaml which can be installed with
-sudo pip install pyyaml
+2. use tera term or putty connect to the board via serial port at baud rate 115200 which is the default.
 
-Note 1: the upper bound for the device time of microsecond precision is 4295 sec (72 minutes).
-So watch out for the time resets.
-Note 2: When the cable connects the Raspberry Pi 4B and the openlog artemis,
-the Raspberry Pi won't boot up.
-
-In Ubuntu, use putty to communicate with openlog artemis,
+In Linux, we can use putty to communicate with openlog artemis,
 install putty with
+```
 sudo apt-get install putty
-Then communicate with openlog artemis
-sudo putty /dev/ttyUSB0 -serial -sercfg 500000,8,n,1,N
+```
+Then connect to openlog artemis via
+```
+sudo putty /dev/ttyUSB0 -serial -sercfg 115200,8,n,1,N
+```
+
+Press whitespace key in the output terminal to bring out the configuration menu with these options,
+```
+1) Configure Terminal Output
+2) Configure Time Stamp
+3) Configure IMU Logging
+...
+```
+
+2.1 Configure terminal output
+* Disable log to microSD, because logging to microSD is half as fast as log to a host computer.
+* Configure the baud rate to the maximum value say 500000, then reconnect to the board.
+* And lastly set the sample rate to 400Hz.
+
+After this step, the menu for Configure Terminal Output should look like below.
+Menu: Configure Terminal Output
+1) Log to microSD: Disabled
+2) Log to Terminal: Enabled
+3) Set Serial Baud Rate: 500000 bps
+4) Set Log Rate in Hz: 468
+5) Set Log Rate in seconds between readings: 0.002136
+6) Enable maximum logging: Disabled
+7) Output Actual Hertz: Enabled
+8) Output Column Titles: Enabled
+9) Output Measurement Count: Disabled
+10) Open New Log Files After (s): 0 (Never)
+11) Frequent log file access timestamps: Disabled
+12) Use pin 11 to trigger logging: No
+13) Logging is triggered when the signal on pin 11 is: Falling
+x) Exit
+
+2.2 Configure timestamp
+* Enable log microseconds.
+
+After this step, the menu for Configure Time Stamp should look like below.
+Menu: Configure Time Stamp
+Current date/time: 01/01/2000 11:52:52.76
+1) Log Date: Enabled
+2) Log Time: Enabled
+3) Set RTC to compiler macro time
+4) Manually set RTC date
+5) Toggle date style: mm/dd/yyyy
+6) Manually set RTC time
+7) Toggle time style: 24 hour
+9) Local offset from UTC: 0
+10) Log Microseconds: Enabled
+x) Exit
+
+2.3 Configure IMU
+* Set Accelerometer data range to +/- 4g
+* Set Gyro range to +/- 500 dps
+* Enable Accelerometer Digital Low Pass Filter
+* Enable Gyro Digital Low Pass Filter
+
+After this step, the menu for Configure IMU should look like below.
+Menu: Configure IMU
+1) Sensor Logging: Enabled
+2) Accelerometer Logging: Enabled
+3) Gyro Logging: Enabled
+4) Magnotometer Logging: Enabled
+5) Temperature Logging: Enabled
+6) Accelerometer Full Scale: +/- 4g
+7) Accelerometer Digital Low Pass Filter: Enabled
+8) Accelerometer DLPF Bandwidth (Hz): 473 (3dB)  499 (Nyquist)
+9) Gyro Full Scale: +/- 500dps
+10) Gyro Digital Low Pass Filter: Enabled
+11) Gyro DLPF Bandwidth (Hz): 361.4 (3dB)  376.5 (Nyquist)
+x) Exit
+
+3. Build and run
+The program depends on pyyaml which can be installed with
+```
+sudo pip install pyyaml
+```
+
+Then the program can be run directly with python.
+```
+python3 imu_node.py
+```
+It is also possible to build and run the program with ROS.
+```
+catkin_make razor_imu_9dof
+source devel/setup.bash
+rosrun razor_imu_9dof imu_node.py
+```
+
+Note 1: the maximum device time of microsecond precision is 4295 sec (72 minutes).
+The device time will reset upon reaching this point.
+Note 2: When the Raspberry Pi 4B is connected to the openlog artemis board,
+the Raspberry Pi won't boot up.
 """
 
 import argparse
