@@ -156,6 +156,7 @@ import time
 
 # import rospy
 # from sensor_msgs.msg import Imu
+# from sensor_msgs.msg import MagneticField
 # from diagnostic_msgs.msg import DiagnosticArray
 
 def print_serial_port(ser):
@@ -168,6 +169,8 @@ class ImuRecorder(object):
     def __init__(self):
         self.pub = None
         self.imuMsg = None
+        self.pubMag = None
+        self.magMsg = None
         self.seq = 0
         self.queue_size = 1
         self.serialPort = None
@@ -182,6 +185,12 @@ class ImuRecorder(object):
         # diag_pub_time = rospy.get_time()
 
         self.imuMsg = Imu()
+
+        self.pubMag = rospy.Publisher('/mag0', MagneticField, queue_size=self.queue_size)
+        # diag_pub = rospy.Publisher('diagnostics', DiagnosticArray, queue_size=1)
+        # diag_pub_time = rospy.get_time()
+
+        self.magMsg = MagneticField()
 
         # Orientation covariance estimation:
         # Observed orientation noise: 0.3 degrees in x, y, 0.6 degrees in z
@@ -227,7 +236,8 @@ class ImuRecorder(object):
 
     def openLogStream(self, output_txt):
         self.logstream = open(output_txt, 'w')
-        self.logstream.write('#host-timestamp[sec],gx(rad/s),gy,gz,ax(m/s^2),ay,az,device-time[sec],date-time[sec],temperature,rate\n')
+        self.logstream.write('#host-timestamp(sec),gx(rad/s),gy,gz,ax(m/s^2),ay,az,device-time(sec),'
+                             'mx(micro Tesla),my,mz,date-time(sec),temperature,rate\n')
 
     def closeLogStream(self):
         cmd = 'h' + chr(13)
@@ -287,6 +297,16 @@ class ImuRecorder(object):
         self.seq = self.seq + 1
         self.pub.publish(self.imuMsg)
 
+    def publishMagnetometer(self, deviceTime, mxyz):
+        self.magMsg.header.stamp = rospy.Time.from_sec(deviceTime)
+        self.magMsg.header.frame_id = 'magnetometer_link'
+        self.magMsg.header.seq = self.seq
+        self.magMsg.magnetic_field.x = mxyz[0]
+        self.magMsg.magnetic_field.y = mxyz[1]
+        self.magMsg.magnetic_field.z = mxyz[2]
+        self.seq = self.seq + 1
+        self.pub.publish(self.magMsg)
+
     def logImuLoop(self):
         print("Publishing IMU data...")
         while True:
@@ -306,6 +326,7 @@ class ImuRecorder(object):
                 # see https://github.com/sparkfun/OpenLog_Artemis/blob/master/SENSOR_UNITS.md
                 accel_factor = 9.80665 / 1000.0    # sensor reports accel in units of 1 milli G (9.8m/s^2). Convert to m/s^2.
                 gyro_factor = math.pi / 180
+                mag_factor = 1 # we use the unit micro Tesla
                 accel_start_index = 3
                 axyz = [float(words[accel_start_index]) * accel_factor,
                         float(words[accel_start_index + 1]) * accel_factor,
@@ -313,6 +334,9 @@ class ImuRecorder(object):
                 gxyz = [float(words[accel_start_index + 3]) * gyro_factor,
                         float(words[accel_start_index + 4]) * gyro_factor,
                         float(words[accel_start_index + 5]) * gyro_factor]
+                mxyz = [float(words[accel_start_index + 6]) * mag_factor,
+                        float(words[accel_start_index + 7]) * mag_factor,
+                        float(words[accel_start_index + 8]) * mag_factor]
 
                 rtcDate = words[0]
                 rtcTime = words[1]
@@ -329,12 +353,18 @@ class ImuRecorder(object):
                 temperature = words[-3]
                 rate = words[-2]
                 currentTime = time.time()
-                message = "{:.8f},{:.8f},{:.8f},{:.8f},{:.8f},{:.8f},{:.8f},{:.8f},{:.2f},{},{}".format(
-                    currentTime, gxyz[0], gxyz[1], gxyz[2], axyz[0], axyz[1], axyz[2],
-                    rtcSecs, elapsedSecs, temperature, rate)
+                # message = "{:.8f},{:.8f},{:.8f},{:.8f},{:.8f},{:.8f},{:.8f},{:.8f},{:.2f},{},{}".format(
+                #     currentTime, gxyz[0], gxyz[1], gxyz[2], axyz[0], axyz[1], axyz[2],
+                #     rtcSecs, elapsedSecs, temperature, rate)
+                message = "{:.8f},{:.8f},{:.8f},{:.8f},{:.8f},{:.8f},{:.8f}," \
+                          "{:.5f},{:.5f},{:.5f}," \
+                          "{:.8f},{:.2f},{},{}".format(currentTime, gxyz[0], gxyz[1], gxyz[2],
+                                                       axyz[0], axyz[1], axyz[2], mxyz[0], mxyz[1], mxyz[2],
+                                                       rtcSecs, elapsedSecs, temperature, rate)
                 self.logstream.write("{}\n".format(message))
 
                 # self.publishImu(rtcSecs, axyz, gxyz)
+                # self.publishMagnetometer(rtcSecs, mxyz)
 
             except Exception as e:
                 print(e)
