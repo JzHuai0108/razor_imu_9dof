@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Copyright (c) 2012, Tang Tiong Yew
+# Copyright (c) 2021, Jianzhu Huai
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -140,6 +140,8 @@ Note 1: the maximum device time of microsecond precision is 4295 sec (72 minutes
 The device time will reset upon reaching this point.
 Note 2: When the Raspberry Pi 4B is connected to the openlog artemis board,
 the Raspberry Pi won't boot up.
+Note 3: The remote device time can be synchronized to the local host time by 
+the DoubleTimestampCorrector in Kalibr.
 """
 
 import argparse
@@ -236,8 +238,8 @@ class ImuRecorder(object):
 
     def openLogStream(self, output_txt):
         self.logstream = open(output_txt, 'w')
-        self.logstream.write('#host-timestamp(sec),gx(rad/s),gy,gz,ax(m/s^2),ay,az,device-time(sec),'
-                             'mx(micro Tesla),my,mz,date-time(sec),temperature,rate\n')
+        self.logstream.write('#host-timestamp(sec),gx(rad/s),gy,gz,ax(m/s^2),ay,az,mx(micro Tesla),my,mz,'
+                             'device-time(sec),date-time(sec),temperature,rate\n')
 
     def closeLogStream(self):
         cmd = 'h' + chr(13)
