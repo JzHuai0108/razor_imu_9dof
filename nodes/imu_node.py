@@ -51,6 +51,9 @@ Then connect to openlog artemis via
 sudo putty /dev/ttyUSB0 -serial -sercfg 115200,8,n,1,N
 ```
 
+In windows, use tera term.
+If you see wrong characters, setup terminal coding to UTF-8m.
+
 Press whitespace key in the output terminal to bring out the configuration menu with these options,
 ```
 1) Configure Terminal Output
@@ -60,6 +63,7 @@ Press whitespace key in the output terminal to bring out the configuration menu 
 ```
 
 2.1 Configure terminal output
+The below settings can be done once and remain intact.
 * Disable log to microSD, because logging to microSD is half as fast as log to a host computer.
 * Configure the baud rate to the maximum value say 500000, then reconnect to the board.
 * And lastly set the sample rate to 400Hz.
@@ -161,6 +165,8 @@ import time
 # from sensor_msgs.msg import MagneticField
 # from diagnostic_msgs.msg import DiagnosticArray
 
+import OrientationFromAccelerometer as ofa
+
 def print_serial_port(ser):
     calib_data = ser.readlines()
 
@@ -178,6 +184,7 @@ class ImuRecorder(object):
         self.serialPort = None
         self.logstream = None
         self.deviceRefDate = None
+        self.rpEstimator = ofa.RollPitchEstimator(9.794, 200)
 
     def initRosNode(self):
         rospy.init_node("imu_node")
@@ -309,7 +316,7 @@ class ImuRecorder(object):
         self.seq = self.seq + 1
         self.pub.publish(self.magMsg)
 
-    def logImuLoop(self):
+    def logImuLoop(self, accel_bias):
         print("Publishing IMU data...")
         while True:
             try:
@@ -367,6 +374,10 @@ class ImuRecorder(object):
 
                 # self.publishImu(rtcSecs, axyz, gxyz)
                 # self.publishMagnetometer(rtcSecs, mxyz)
+                self.rpEstimator.add([currentTime, axyz[0], axyz[1], axyz[2]])
+                average = self.rpEstimator.bias(accel_bias)
+                rp = self.rpEstimator.rollAndPitch(accel_bias)
+                print('Roll and pitch {}, Accelerometer average {}'.format(rp, average[1:]))
 
             except Exception as e:
                 print(e)
@@ -385,11 +396,13 @@ def parseArgs():
                                     'In Windows, you have to poweroff after logging is stopped.',
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--baudrate', metavar='baudrate', type=int, default=500000,
-                        help='baudrate to connect to the serial port of the sparkfun IMU')
+                        help='baudrate to connect to the serial port of the sparkfun IMU. (default: %(default)s)')
     parser.add_argument('--output_txt', metavar='output_txt', type=str, default='',
-                        help='output txt')
+                        help='output txt. (default: %(default)s)')
     parser.add_argument('--port', metavar='port', type=str, default='/dev/ttyUSB0',
-                        help='IMU USB port. On windows, port should be like COM9.')
+                        help='IMU USB port. On windows, port should be like COM9. (default: %(default)s)')
+    parser.add_argument('--accel_bias', nargs=3, type=float, default=[0, 0, 0],
+                        help='Accelerometer bias for computing roll and pitch. (default: %(default)s)')
     args = parser.parse_args()
     return args
 
@@ -419,7 +432,7 @@ def main():
 
     recorder.flushSerialPort(hostBaselineTime)
     print("Start data stream to {}...".format(args.output_txt))
-    recorder.logImuLoop()
+    recorder.logImuLoop(args.accel_bias)
 
 if __name__ == "__main__":
     main()
